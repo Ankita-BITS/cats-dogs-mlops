@@ -19,8 +19,6 @@ mlartifacts/
 # Python testing
 .pytest_cache/
 
-# Models
-models/*.pt
 
 # Data
 data/raw/
