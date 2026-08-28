@@ -1,0 +1,9 @@
+services:
+
+  cats-dogs-api:
+    image: ankita5296/cats-dogs-api:latest
+
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
