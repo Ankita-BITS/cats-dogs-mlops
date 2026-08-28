@@ -7,3 +7,38 @@ services:
       - "8000:8000"
 
     restart: unless-stopped
+
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    depends_on:
+      - cats-dogs-api
+
+    restart: unless-stopped
+
+
+  grafana:
+    image: grafana/grafana:13.2.0
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      - prometheus
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+    restart: unless-stopped
+
+
+volumes:
+
+  grafana-data:

@@ -2,15 +2,22 @@ import io
 import logging
 import time
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from PIL import Image
+
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Histogram,
+    generate_latest,
+)
 
 from src.inference import load_model, predict_image
 
 
-# ---------------------------------------------------------
-# Logging
-# ---------------------------------------------------------
+# ============================================================
+# LOGGING
+# ============================================================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,9 +31,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------
+# ============================================================
+# PROMETHEUS METRICS
+# ============================================================
+
+API_REQUESTS = Counter(
+    "api_requests_total",
+    "Total API requests",
+    ["endpoint"]
+)
+
+PREDICTION_REQUESTS = Counter(
+    "prediction_requests_total",
+    "Total prediction requests"
+)
+
+PREDICTION_ERRORS = Counter(
+    "prediction_errors_total",
+    "Total failed prediction requests"
+)
+
+PREDICTION_LATENCY = Histogram(
+    "prediction_latency_seconds",
+    "Prediction request latency in seconds"
+)
+
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
 
 app = FastAPI(
     title="Cats vs Dogs Classification API",
@@ -38,9 +71,9 @@ app = FastAPI(
 )
 
 
-# ---------------------------------------------------------
-# Load model once when application starts
-# ---------------------------------------------------------
+# ============================================================
+# MODEL
+# ============================================================
 
 model = None
 device = None
@@ -52,7 +85,9 @@ def startup_event():
     global model
     global device
 
-    logger.info("Loading classification model")
+    logger.info(
+        "Loading Cats vs Dogs classification model"
+    )
 
     model, device = load_model()
 
@@ -62,12 +97,16 @@ def startup_event():
     )
 
 
-# ---------------------------------------------------------
-# Root endpoint
-# ---------------------------------------------------------
+# ============================================================
+# ROOT
+# ============================================================
 
 @app.get("/")
 def root():
+
+    API_REQUESTS.labels(
+        endpoint="/"
+    ).inc()
 
     return {
         "message": "Cats vs Dogs Classification API",
@@ -75,14 +114,22 @@ def root():
     }
 
 
-# ---------------------------------------------------------
-# Health endpoint
-# ---------------------------------------------------------
+# ============================================================
+# HEALTH
+# ============================================================
 
 @app.get("/health")
 def health():
 
+    API_REQUESTS.labels(
+        endpoint="/health"
+    ).inc()
+
     if model is None:
+
+        logger.error(
+            "Health check failed: model not loaded"
+        )
 
         raise HTTPException(
             status_code=503,
@@ -95,9 +142,9 @@ def health():
     }
 
 
-# ---------------------------------------------------------
-# Prediction endpoint
-# ---------------------------------------------------------
+# ============================================================
+# PREDICTION
+# ============================================================
 
 @app.post("/predict")
 async def predict(
@@ -106,6 +153,12 @@ async def predict(
 
     start_time = time.perf_counter()
 
+    API_REQUESTS.labels(
+        endpoint="/predict"
+    ).inc()
+
+    PREDICTION_REQUESTS.inc()
+
     allowed_content_types = {
         "image/jpeg",
         "image/png",
@@ -113,6 +166,13 @@ async def predict(
     }
 
     if file.content_type not in allowed_content_types:
+
+        PREDICTION_ERRORS.inc()
+
+        logger.warning(
+            "Prediction rejected: invalid file type %s",
+            file.content_type
+        )
 
         raise HTTPException(
             status_code=400,
@@ -137,13 +197,18 @@ async def predict(
         )
 
         latency = (
-            time.perf_counter() -
-            start_time
+            time.perf_counter()
+            - start_time
+        )
+
+        PREDICTION_LATENCY.observe(
+            latency
         )
 
         logger.info(
             "Prediction completed "
-            "label=%s confidence=%.4f "
+            "label=%s "
+            "confidence=%.4f "
             "latency=%.4fs",
             result["label"],
             result["confidence"],
@@ -156,9 +221,12 @@ async def predict(
         }
 
     except HTTPException:
+
         raise
 
     except Exception as exc:
+
+        PREDICTION_ERRORS.inc()
 
         logger.exception(
             "Prediction failed"
@@ -168,3 +236,16 @@ async def predict(
             status_code=500,
             detail="Unable to process image"
         ) from exc
+
+
+# ============================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================
+
+@app.get("/metrics")
+def metrics():
+
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
