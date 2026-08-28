@@ -4,7 +4,7 @@ from pathlib import Path
 import requests
 
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = "http://127.0.0.1:9999"
 
 TEST_IMAGE = Path(
     "sample_images/cat.jpg"
