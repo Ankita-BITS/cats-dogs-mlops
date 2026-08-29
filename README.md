@@ -200,7 +200,74 @@ Training data augmentation includes:
 
 The processed data is versioned using DVC.
 
-## 6. Environment Setup
+## 6. Prerequisites and Initial Repository Setup
+
+Install the following before starting:
+
+- Python 3.11
+- Git
+- Docker Desktop
+- A GitHub account
+- A Docker Hub account
+
+Verify:
+
+```powershell
+python --version
+git --version
+docker --version
+docker compose version
+```
+
+Create the project folder and initialize Git:
+
+```powershell
+mkdir cats-dogs-mlops
+cd cats-dogs-mlops
+git init
+git branch -M main
+```
+
+Create the main project folders:
+
+```powershell
+mkdir src
+mkdir data
+mkdir data\raw
+mkdir data\processed
+mkdir models
+mkdir artifacts
+mkdir tests
+mkdir deployment
+mkdir monitoring
+mkdir scripts
+mkdir sample_images
+mkdir .github
+mkdir .github\workflows
+```
+
+Create an empty Python package file:
+
+```powershell
+New-Item src\__init__.py -ItemType File
+```
+
+Create a GitHub repository named:
+
+```text
+cats-dogs-mlops
+```
+
+Then connect the local repository:
+
+```powershell
+git remote add origin https://github.com/YOUR_GITHUB_USERNAME/cats-dogs-mlops.git
+git add .
+git commit -m "Initialize Cats vs Dogs MLOps project"
+git push -u origin main
+```
+
+## 7. Environment Setup
 
 ### Create a virtual environment
 
@@ -226,9 +293,37 @@ Install development dependencies:
 pip install -r requirements-dev.txt
 ```
 
-## 7. Data Versioning with DVC
+## 8. Dataset Download and Data Versioning with DVC
 
-Initialize DVC:
+Download the Cats and Dogs binary classification dataset from Kaggle.
+
+After extraction, organize the raw files as:
+
+```text
+data/raw/
+|-- cats/
+|   |-- cat.0.jpg
+|   `-- ...
+`-- dogs/
+    |-- dog.0.jpg
+    `-- ...
+```
+
+The preprocessing code assumes the class folders are named exactly:
+
+```text
+cats
+dogs
+```
+
+Install and initialize DVC:
+
+```powershell
+pip install dvc
+dvc init
+```
+
+Track the raw dataset:
 
 ```powershell
 dvc init
@@ -246,13 +341,17 @@ Track processed data:
 dvc add data/processed
 ```
 
+The `.dvc` pointer files are committed to Git while the large dataset folders remain outside normal Git tracking.
+
+The trained `models/model.pt` is kept directly in Git so the GitHub Actions runner can build the Docker image without requiring a separately configured DVC remote. DVC is used for the required dataset versioning.
+
 Check DVC status:
 
 ```powershell
 dvc status
 ```
 
-## 8. Data Preprocessing
+## 9. Data Preprocessing
 
 Run preprocessing from the project root:
 
@@ -277,7 +376,7 @@ data/processed/
     `-- dogs/
 ```
 
-## 9. Model Development
+## 10. Model Development
 
 The baseline model is a custom convolutional neural network implemented in PyTorch.
 
@@ -326,7 +425,7 @@ The best model is saved to:
 models/model.pt
 ```
 
-## 10. Experiment Tracking with MLflow
+## 11. Experiment Tracking with MLflow
 
 MLflow tracks:
 
@@ -363,9 +462,13 @@ MLflow tracks:
 - Test metrics JSON
 - Training history JSON
 
-The project uses a local SQLite MLflow backend.
+The project uses a local SQLite MLflow backend. Newer MLflow versions may reject the old filesystem tracking backend, so the training code should use:
 
-Start MLflow:
+```python
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
+```
+
+Start MLflow on Windows using a single worker:
 
 ```powershell
 mlflow server --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000 --workers 1
@@ -377,7 +480,7 @@ Open:
 http://127.0.0.1:5000
 ```
 
-## 11. FastAPI Inference Service
+## 12. FastAPI Inference Service
 
 The trained model is exposed through FastAPI.
 
@@ -447,7 +550,7 @@ Prometheus metrics include:
 - `prediction_errors_total`
 - `prediction_latency_seconds`
 
-## 12. Test the API
+## 13. Test the API
 
 Health check:
 
@@ -463,7 +566,55 @@ curl.exe -X POST `
   -F "file=@sample_images/cat.jpg"
 ```
 
-## 13. Docker
+## 14. Docker
+
+Before building, verify that `models/model.pt` exists:
+
+```powershell
+Test-Path models\model.pt
+```
+
+It should return:
+
+```text
+True
+```
+
+`requirements.txt` should contain pinned inference/runtime dependencies, for example:
+
+```text
+torch==<installed-version>
+torchvision==<installed-version>
+fastapi==<installed-version>
+uvicorn==<installed-version>
+python-multipart==<installed-version>
+Pillow==<installed-version>
+prometheus-client==<installed-version>
+```
+
+Use the exact versions installed in the development environment:
+
+```powershell
+pip show torch torchvision fastapi uvicorn python-multipart pillow prometheus-client
+```
+
+The Dockerfile should use a single-line JSON `CMD`:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src ./src
+COPY models/model.pt ./models/model.pt
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
 
 ### Build
 
@@ -486,13 +637,21 @@ docker run `
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-## 14. Automated Testing
+## 15. Automated Testing
 
 The project includes tests for:
 
 - Image preprocessing
 - Inference preprocessing
 - Prediction utility behavior
+
+Create `pytest.ini` in the repository root so the `src` package is importable during local and CI tests:
+
+```ini
+[pytest]
+pythonpath = .
+testpaths = tests
+```
 
 Run:
 
@@ -508,7 +667,7 @@ tests/test_inference.py::test_predict_image PASSED
 tests/test_preprocess.py::test_preprocess_image PASSED
 ```
 
-## 15. Continuous Integration
+## 16. Continuous Integration
 
 GitHub Actions CI runs on:
 
@@ -548,7 +707,26 @@ latest
 
 This provides traceability between source commits and container images.
 
-## 16. Docker Hub
+## 17. Docker Hub and GitHub CI Credentials
+
+Create a Docker Hub repository named:
+
+```text
+cats-dogs-api
+```
+
+Use Public visibility for the simplest assignment setup.
+
+Create a Docker Hub Personal Access Token with Read/Write access:
+
+```text
+Docker Hub
+-> Account Settings
+-> Personal access tokens
+-> Generate new token
+```
+
+Do not place the token in source code or YAML.
 
 The CI workflow publishes the API image to:
 
@@ -558,7 +736,16 @@ DOCKERHUB_USERNAME/cats-dogs-api:latest
 
 Docker Hub credentials are stored using GitHub repository secrets and variables.
 
-Required configuration:
+Required GitHub repository configuration:
+
+```text
+Repository
+-> Settings
+-> Secrets and variables
+-> Actions
+```
+
+Create:
 
 ```text
 Secret:
@@ -568,7 +755,14 @@ Variable:
 DOCKERHUB_USERNAME
 ```
 
-## 17. Continuous Deployment
+The Docker Hub image is tagged as both:
+
+```text
+DOCKERHUB_USERNAME/cats-dogs-api:latest
+DOCKERHUB_USERNAME/cats-dogs-api:<git-commit-sha>
+```
+
+## 18. Continuous Deployment
 
 The CD pipeline uses a Windows self-hosted GitHub Actions runner.
 
@@ -601,7 +795,113 @@ Prediction Smoke Test
 
 The CD workflow deploys only after the CI pipeline completes successfully.
 
-## 18. Docker Compose Deployment
+### Configure the Windows self-hosted runner
+
+In GitHub:
+
+```text
+Repository
+-> Settings
+-> Actions
+-> Runners
+-> New self-hosted runner
+-> Windows
+-> x64
+```
+
+Install the runner under:
+
+```text
+C:\actions-runner
+```
+
+Do not install it under `C:\Windows\System32`.
+
+Follow the repository-specific download and registration commands shown by GitHub.
+
+For this assignment, the simplest reliable approach is to configure the runner without installing it as a Windows service, then start it manually:
+
+```powershell
+cd C:\actions-runner
+.\run.cmd
+```
+
+Keep this window open while running CD. GitHub should show the runner as:
+
+```text
+Idle
+```
+
+Docker Desktop must also be running.
+
+Verify:
+
+```powershell
+docker info
+docker compose version
+```
+
+The CD workflow should use the runner labels:
+
+```yaml
+runs-on:
+  - self-hosted
+  - Windows
+  - X64
+```
+
+The CD workflow is triggered after the `MLOps CI Pipeline` completes successfully on `main`.
+
+## 19. Docker Compose Deployment
+
+The final `deployment/docker-compose.yml` should deploy the API, Prometheus, and Grafana on one explicitly named Docker network.
+
+Example structure:
+
+```yaml
+services:
+  cats-dogs-api:
+    image: YOUR_DOCKERHUB_USERNAME/cats-dogs-api:latest
+    ports:
+      - "8000:8000"
+    networks:
+      - mlops-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - mlops-network
+    depends_on:
+      - cats-dogs-api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.0
+    ports:
+      - "3000:3000"
+    networks:
+      - mlops-network
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+networks:
+  mlops-network:
+    name: cats-dogs-mlops-network
+    driver: bridge
+
+volumes:
+  grafana-data:
+```
+
+Replace `YOUR_DOCKERHUB_USERNAME` with the actual Docker Hub username.
 
 Start the full stack manually:
 
@@ -613,6 +913,14 @@ Force recreation:
 
 ```powershell
 docker compose -f deployment\docker-compose.yml up -d --force-recreate --remove-orphans
+```
+
+If Docker reports that the container name is already in use, locate and remove the previous standalone container before starting Compose:
+
+```powershell
+docker ps -a
+docker stop cats-dogs-api
+docker rm cats-dogs-api
 ```
 
 Stop:
@@ -635,7 +943,28 @@ prometheus
 grafana
 ```
 
-## 19. Smoke Tests
+## 20. Smoke Tests
+
+The CD smoke test expects a committed test image at:
+
+```text
+sample_images/cat.jpg
+```
+
+Verify it is tracked by Git:
+
+```powershell
+git status
+git add sample_images/cat.jpg
+git commit -m "Add smoke test image"
+git push origin main
+```
+
+The smoke test uses:
+
+```python
+BASE_URL = "http://127.0.0.1:8000"
+```
 
 Run:
 
@@ -650,7 +979,7 @@ The smoke test validates:
 
 The script exits with a non-zero status if either check fails, causing the CD pipeline to fail.
 
-## 20. Monitoring with Prometheus
+## 21. Monitoring with Prometheus
 
 Prometheus is available at:
 
@@ -658,11 +987,33 @@ Prometheus is available at:
 http://127.0.0.1:9090
 ```
 
-The API is scraped from:
+The API is scraped from the Docker Compose service name:
 
 ```text
 http://cats-dogs-api:8000/metrics
 ```
+
+`monitoring/prometheus.yml`:
+
+```yaml
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "cats-dogs-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "cats-dogs-api:8000"
+```
+
+Validate the target at:
+
+```text
+http://127.0.0.1:9090/targets
+```
+
+The `cats-dogs-api` target should be `UP`.
 
 Useful PromQL queries:
 
@@ -704,7 +1055,7 @@ rate(prediction_latency_seconds_count[5m])
 prediction_errors_total
 ```
 
-## 21. Grafana
+## 22. Grafana
 
 Grafana is available at:
 
@@ -712,10 +1063,37 @@ Grafana is available at:
 http://127.0.0.1:3000
 ```
 
-Prometheus data source:
+Default first login is typically:
+
+```text
+Username: admin
+Password: admin
+```
+
+Add Prometheus as the Grafana data source:
+
+```text
+Connections
+-> Data sources
+-> Add data source
+-> Prometheus
+```
+
+Prometheus server URL:
 
 ```text
 http://prometheus:9090
+```
+
+Click `Save & test`.
+
+Create a dashboard:
+
+```text
+Dashboards
+-> New
+-> New dashboard
+-> Add visualization
 ```
 
 Recommended dashboard panels:
@@ -734,7 +1112,7 @@ Suggested dashboard name:
 Cats vs Dogs MLOps Monitoring
 ```
 
-## 22. Application Logging
+## 23. Application Logging
 
 The FastAPI service logs:
 
@@ -762,7 +1140,7 @@ docker compose `
   logs --tail=30 cats-dogs-api
 ```
 
-## 23. Post-Deployment Performance Evaluation
+## 24. Post-Deployment Performance Evaluation
 
 The deployed API is evaluated using labeled images from the test dataset.
 
@@ -795,7 +1173,7 @@ artifacts/deployed_performance.json
 
 This verifies performance of the deployed service rather than only the locally loaded model.
 
-## 24. Generate Monitoring Traffic
+## 25. Generate Monitoring Traffic
 
 Example:
 
@@ -814,7 +1192,22 @@ curl.exe -s http://127.0.0.1:8000/metrics |
 Select-String "prediction_requests_total"
 ```
 
-## 25. Key URLs
+If FastAPI shows a non-zero counter but Prometheus shows a different value, compare the endpoint from the Prometheus container:
+
+```powershell
+docker ps --filter "ancestor=prom/prometheus" --format "{{.Names}}"
+```
+
+Then:
+
+```powershell
+docker exec <PROMETHEUS_CONTAINER_NAME> wget -qO- http://cats-dogs-api:8000/metrics |
+Select-String "prediction_requests_total"
+```
+
+The host and Prometheus-container values should match. If they do not, remove old/orphaned API containers and recreate the stack on the explicit `cats-dogs-mlops-network`.
+
+## 26. Key URLs
 
 | Service | URL |
 |---|---|
@@ -826,7 +1219,7 @@ Select-String "prediction_requests_total"
 | Prometheus | `http://127.0.0.1:9090` |
 | Grafana | `http://127.0.0.1:3000` |
 
-## 26. MLOps Pipeline Summary
+## 27. MLOps Pipeline Summary
 
 ### M1 - Model Development and Experiment Tracking
 
@@ -890,27 +1283,29 @@ Implemented:
 - Post-deployment labeled evaluation
 - Performance JSON artifact
 
-## 27. Final Demonstration Flow
 
-Recommended demonstration sequence:
+## 28. Reproduction Checklist
 
-```text
-1. Show GitHub repository and DVC files
-2. Show MLflow experiment and metrics
-3. Show FastAPI /docs
-4. Run pytest
-5. Push a code change
-6. Show GitHub Actions CI
-7. Show Docker Hub image
-8. Show GitHub Actions CD
-9. Show successful smoke tests
-10. Show deployed prediction
-11. Show Prometheus target and metrics
-12. Show Grafana dashboard
-13. Show post-deployment performance results
-```
+For a clean machine or evaluator, the intended reproduction order is:
 
-## 28. Deliverables
+1. Clone the GitHub repository.
+2. Create and activate the Python 3.11 virtual environment.
+3. Install `requirements-dev.txt`.
+4. Place/download the Kaggle dataset under `data/raw/cats` and `data/raw/dogs`, or restore it through the configured DVC storage if a DVC remote is available.
+5. Run preprocessing if processed data is not restored.
+6. Train the CNN using `python -m src.train`, or use the included `models/model.pt`.
+7. Start MLflow with the SQLite backend if experiment history is required.
+8. Run `pytest -v`.
+9. Build and test the Docker image.
+10. Configure Docker Hub and GitHub Actions secrets/variables.
+11. Start the Windows self-hosted runner and Docker Desktop.
+12. Push to `main` to execute CI followed by CD.
+13. Verify the Docker Compose API deployment.
+14. Verify Prometheus target health.
+15. Configure the Grafana Prometheus datasource and dashboard.
+16. Run `scripts/evaluate_deployed.py` for post-deployment model performance.
+
+## 29. Deliverables
 
 The final submission contains:
 
