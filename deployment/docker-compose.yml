@@ -6,6 +6,9 @@ services:
     ports:
       - "8000:8000"
 
+    networks:
+      - mlops-network
+
     restart: unless-stopped
 
 
@@ -17,6 +20,9 @@ services:
 
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    networks:
+      - mlops-network
 
     depends_on:
       - cats-dogs-api
@@ -30,6 +36,9 @@ services:
     ports:
       - "3000:3000"
 
+    networks:
+      - mlops-network
+
     depends_on:
       - prometheus
 
@@ -37,6 +46,13 @@ services:
       - grafana-data:/var/lib/grafana
 
     restart: unless-stopped
+
+
+networks:
+
+  mlops-network:
+    name: cats-dogs-mlops-network
+    driver: bridge
 
 
 volumes:
