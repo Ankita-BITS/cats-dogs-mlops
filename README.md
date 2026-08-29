@@ -1,8 +1,16 @@
 # Cats vs Dogs MLOps Pipeline
+```text
+Name - ANKITA GOPAKUMAR MEENAKSHI
 
+BITS ID- 2024AC05600
+```
 End-to-end MLOps implementation for binary image classification of cats and dogs for a pet adoption platform.
 
 This project covers the complete lifecycle from data preparation and model training through experiment tracking, API packaging, containerization, CI/CD deployment, monitoring, logging, and post-deployment performance evaluation.
+
+## Screen Recording Link
+
+https://drive.google.com/file/d/1JGbQQcoHJjcEmIuRkfK-0Chd7Bry6vdy/view?usp=drive_link
 
 ## 1. Project Overview
 
